@@ -35,7 +35,7 @@ onMounted(() => {
     const boxGeometry = new THREE.BoxGeometry(80, 50, 3, 400, 400);
 
 // Load the displacement map
-    const displacementMap = new THREE.TextureLoader().load('http://127.0.0.1:8000/images/image.png', function (texture) {
+    const displacementMap = new THREE.TextureLoader().load('http://localhost:8000/images/image.png', function (texture) {
         // Texture loaded callback
         displacementMap.image = texture.image; // Store the loaded image
         displacementMap.needsUpdate = true; // Update the texture
@@ -44,7 +44,7 @@ onMounted(() => {
         {
             return {
                 u: ((x + (width / 2)) / width),
-                v: ((y + (height / 2)) / height),
+                v: 1 - ((y + (height / 2)) / height),
             };
         }
 
@@ -67,7 +67,7 @@ onMounted(() => {
                 const x = vertices[i];
                 const y = vertices[i + 1];
 
-                let uvVals = calculateUV(x, y, geometry.parameters.width / 2, geometry.parameters.height)
+                let uvVals = calculateUV(x, y, geometry.parameters.width, geometry.parameters.height)
 
                 // uvCheck.push(uvVals);
                 // xyCheck.push({
@@ -94,6 +94,9 @@ onMounted(() => {
         // Helper function to get displacement image data
         function getDisplacementImageData(displacementMap) {
             const canvas = document.createElement('canvas');
+            canvas.width = displacementMap.image.width;
+            canvas.height = displacementMap.image.height;
+
             const context = canvas.getContext('2d');
             context.drawImage(displacementMap.image, 0, 0);
             console.log(context.getImageData(0, 0, displacementMap.image.width, displacementMap.image.height));
