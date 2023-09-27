@@ -35,10 +35,18 @@ onMounted(() => {
     const boxGeometry = new THREE.BoxGeometry(80, 50, 3, 400, 400);
 
 // Load the displacement map
-    const displacementMap = new THREE.TextureLoader().load('http://127.0.0.1:8000/images/skra-bw.jpg', function (texture) {
+    const displacementMap = new THREE.TextureLoader().load('http://127.0.0.1:8000/images/image.png', function (texture) {
         // Texture loaded callback
         displacementMap.image = texture.image; // Store the loaded image
         displacementMap.needsUpdate = true; // Update the texture
+
+        function calculateUV(x, y, width, height)
+        {
+            return {
+                u: ((x + (width / 2)) / width),
+                v: ((y + (height / 2)) / height),
+            };
+        }
 
         // Create a function to displace the vertices based on the displacement map
         function displaceVertices(geometry, displacementMap, scale) {
@@ -50,23 +58,34 @@ onMounted(() => {
                 return;
             }
 
-            const width = displacementMap.image.width;
-            const height = displacementMap.image.height;
+            const imageWidth = displacementMap.image.width;
+            const imageHeight = displacementMap.image.height;
+            let uvCheck = [];
+            let xyCheck = [];
 
             for (let i = 0; i < vertices.length; i += 3) {
                 const x = vertices[i];
                 const y = vertices[i + 1];
-                const u = ((x / 80 + 0.5) * width) % width;
-                const v = ((y / 50 + 0.5) * height) % height;
+
+                let uvVals = calculateUV(x, y, geometry.parameters.width / 2, geometry.parameters.height)
+
+                // uvCheck.push(uvVals);
+                // xyCheck.push({
+                //     x: x,
+                //     y: y
+                // });
 
                 // Sample the displacement map
-                const value = getDisplacementValue(displacementImageData, u, v, width);
+                const value = getDisplacementValue(displacementImageData, uvVals.u, uvVals.v, imageWidth, imageHeight);
 
                 //console.log(value);
 
                 // Apply displacement to vertices
                 vertices[i + 2] += value * scale; // Displace along the Z-axis
             }
+
+            //console.log(uvCheck);
+            //console.log(xyCheck);
 
             geometry.computeVertexNormals();
             geometry.attributes.position.needsUpdate = true;
@@ -86,17 +105,26 @@ onMounted(() => {
             }
         }
 
+        let indexs = []
         // Helper function to get displacement value from image data
-        function getDisplacementValue(imageData, u, v, width) {
-            const index = Math.floor(u) + Math.floor(v) * width;
-            const pixel = imageData.data[index * 4]; // Assuming it's grayscale
+        function getDisplacementValue(imageData, u, v, width, height) {
+            const index = (Math.floor(u * width - 1) + (Math.floor(v * height - 1) * width)) * 4;
+            const pixel = (imageData.data[index] + imageData.data[index + 1]) / 3; // Assuming it's grayscale
 
-            return (pixel / 255 - 0.5); // Normalize to [-0.5, 0.5]
+            indexs.push({
+                u: u,
+                v: v,
+                index: index
+            })
+
+            return (pixel / 255) - 0.5; // Normalize to [-0.5, 0.5]
         }
 
         boxGeometry.computeVertexNormals();
         // Call the function to displace vertices
-        displaceVertices(boxGeometry, displacementMap, .6); // Adjust the scale as needed
+        displaceVertices(boxGeometry, displacementMap, 10); // Adjust the scale as needed
+
+        // console.log(indexs);
 
         // Create a new mesh with the modified geometry
         const displacedMesh = new THREE.Mesh(boxGeometry, [
