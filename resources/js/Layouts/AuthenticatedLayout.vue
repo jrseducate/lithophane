@@ -155,3 +155,9 @@ const showingNavigationDropdown = ref(false);
         </div>
     </div>
 </template>
+
+<style>
+  #main {
+    position: relative;
+  }
+</style>

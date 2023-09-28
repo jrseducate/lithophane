@@ -12,40 +12,159 @@ import {VertexNormalsHelper} from "three/addons/helpers/VertexNormalsHelper";
 const exporter = new STLExporter();
 const options = {binary: true}
 
+function createElement(options)
+{
+  const tag = options.tag;
+  delete options.tag;
+
+  const element = document.createElement(tag);
+  const keys = Object.keys(options);
+
+  for (let i = 0; i < keys.length; i++)
+  {
+    const key = keys[i];
+    const value = options[key];
+
+    switch(key)
+    {
+      case 'children':
+        const children = value;
+
+        for (let j = 0; j < children.length; j++) {
+          element.appendChild(createElement(children[j]));
+        }
+        break;
+
+      case 'classList':
+        const classList = value;
+
+        for (let j = 0; j < classList.length; j++) {
+          element.classList.add(classList[j]);
+        }
+        break;
+
+      case 'style':
+        const style = value;
+        const styleKeys = Object.keys(style);
+
+        for (let j = 0; j < styleKeys.length; j++) {
+          const styleKey = styleKeys[j];
+          const styleValue = style[styleKey];
+
+          element.style[styleKey] = styleValue;
+        }
+        break;
+
+      default:
+        element[key] = value;
+        break;
+    }
+  }
+
+  return element;
+}
+
 class ModelViewer
 {
   constructor() {
-    this.scene = new THREE.Scene();
-    this.camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
-    this.renderer = new THREE.WebGLRenderer({antialias: true, alpha: true});
+  }
+
+  optionsAddSlider(name, min, max, onUpdate) {
+    this.options.appendChild(createElement({
+      tag: 'div',
+      style: {
+        width: '100%',
+      },
+      className: 'slider-container',
+      children: [
+        {
+          tag: 'label',
+          className: 'slider-label',
+          innerText: name,
+        },
+        {
+          tag: 'div',
+          style: {
+            display: 'flex',
+          },
+          children: [
+            {
+              tag: 'span',
+              style: {
+                marginRight: '15px',
+              },
+              innerText: min,
+            },
+            {
+              tag: 'input',
+              className: 'slider',
+              style: {
+                marginTop: '4px',
+              },
+              type: 'range',
+              min: min,
+              max: max,
+              value: min + Math.floor((max - min) * 0.5),
+              oninput: onUpdate,
+            },
+            {
+              tag: 'span',
+              style: {
+                marginLeft: '15px',
+              },
+              innerText: max,
+            },
+          ]
+        }
+      ]
+    }));
+  }
+
+  getAspectRatio() {
+    return this.renderer.domElement.clientWidth / this.renderer.domElement.clientHeight;
+  }
+
+  delay(delay, name, onTrigger) {
+    const timeoutKey = 'timeout' + name;
+
+    if (this[timeoutKey]) {
+      clearTimeout(this[timeoutKey]);
+
+      this[timeoutKey] = null;
+    }
+
+    this[timeoutKey] = setTimeout(onTrigger, delay);
   }
 
   onMount() {
-    this.scale = 0.5;
-    this.curvature = 1;
+    this.container = document.getElementById('main-container');
+    this.options   = document.getElementById('options-container');
+    this.scale     = 0.5;
+    this.curvature = 0.5;
 
-    this.sceneInit();
-    this.rendererInit();
-    this.geometryInit();
-    this.displacementMapInit();
+    this.init();
+  }
 
-    function onWindowResize() {
-      this.camera.aspect = window.innerWidth / window.innerHeight;
-      this.camera.updateProjectionMatrix();
-      this.renderer.setSize(window.innerWidth, window.innerHeight);
-      this.render();
-    }
+  init() {
+    this.textureInit((texture) => {
+      this.texture = texture;
 
-    window.addEventListener('resize', onWindowResize.bind(this), false);
+      this.sceneInit();
+      this.rendererInit();
 
-    this.camera.position.z = this.geometry.parameters.width;
+      this.meshInit();
+      this.cameraInit(this.geometry.parameters.width);
 
-    const controls = new OrbitControls(this.camera, this.renderer.domElement)
-    controls.screenSpacePanning = true //so that panning up and down doesn't zoom in/out
-    //controls.addEventListener('change', render)
+      this.optionsInit();
+      this.bindingsInit();
+
+      this.animate();
+    });
   }
 
   sceneInit() {
+    this.scene = new THREE.Scene();
+
     this.sceneAddAxisHelper();
     this.sceneAddLight();
     this.sceneAddDirectionalLight();
@@ -58,27 +177,61 @@ class ModelViewer
   // Create ambient light and add to scene.
   sceneAddLight() {
     var light = new THREE.AmbientLight(0xf7f7f7); // soft white light
+
     this.scene.add(light);
   }
 
   // Create directional light and add to scene.
   sceneAddDirectionalLight() {
     var directionalLight = new THREE.DirectionalLight(0xffffff);
+
     directionalLight.position.set(1, 1, -100).normalize();
+
     this.scene.add(directionalLight);
   }
 
   rendererInit() {
-    this.renderer.setSize(window.innerWidth, window.innerHeight);
-    document.getElementById('main-container').appendChild(this.renderer.domElement);
+    this.renderer = new THREE.WebGLRenderer({antialias: true, alpha: true});
+
+    this.renderer.setSize(this.container.clientWidth, this.container.clientHeight);
+
+    this.container.appendChild(this.renderer.domElement);
+  }
+
+  cameraInit(distanceZ) {
+    this.camera = new THREE.PerspectiveCamera(75, this.getAspectRatio(), 0.1, 1000);
+
+    this.camera.position.z = distanceZ;
+
+    this.controls = new OrbitControls(this.camera, this.renderer.domElement)
+    this.controls.screenSpacePanning = true //so that panning up and down doesn't zoom in/out
   }
 
   geometryInit() {
     this.geometry = new THREE.PlaneGeometry(80, 50, 400, 400);
+
+    this.displaceVertices(this.texture.image); // Adjust the scale as needed
   }
 
-  displacementMapInit() {
-    this.displacementMap = new THREE.TextureLoader().load('http://localhost:8000/images/image.png', this.textureLoad.bind(this));
+  textureInit(onTextureLoaded) {
+    new THREE.TextureLoader().load('http://localhost:8000/images/image.png', onTextureLoaded.bind(this));
+  }
+
+  optionsInit() {
+    this.optionsAddSlider('Curvature', 0, 100, (e) => this.delay(0, 'set_curvature', () => {
+      this.curvature = e.target.value / 100;
+
+      this.textureInit((texture) => {
+        this.texture = texture;
+
+        this.sceneInit();
+        this.meshInit();
+      });
+    }));
+  }
+
+  bindingsInit() {
+    window.addEventListener('resize', this.onResize.bind(this), false);
   }
 
   calculateUV(x, y, width, height) {
@@ -88,28 +241,26 @@ class ModelViewer
     };
   }
 
-  displaceVertices(displacementMap) {
+  displaceVertices(image) {
     const geometry  = this.geometry;
     const scale     = this.scale;
     const curvature = this.curvature;
-    let radius    = this.geometry.parameters.width / 2;
+    let radius      = this.geometry.parameters.width / 2;
 
     radius /= curvature * Math.PI;
 
-    debugger;
-
     geometry.computeVertexNormals();
 
-    const vertices              = geometry.attributes.position.array;
-    const normals               = geometry.attributes.normal.array;
-    const displacementImageData = this.getDisplacementImageData(displacementMap);
+    const vertices  = geometry.attributes.position.array;
+    const normals   = geometry.attributes.normal.array;
+    const imageData = this.getImageData(image);
 
-    if (!displacementImageData) {
-      return console.error('Failed to access displacement map image data.');
+    if (!imageData) {
+      return console.error('Failed to access image data.');
     }
 
-    const imageWidth = displacementMap.image.width;
-    const imageHeight = displacementMap.image.height;
+    const imageWidth = image.width;
+    const imageHeight = image.height;
 
     const yAxis = new THREE.Vector3(0, 1, 0);
 
@@ -126,7 +277,7 @@ class ModelViewer
       );
 
       const uv    = this.calculateUV(vertex.x, vertex.y, geometry.parameters.width, geometry.parameters.height);
-      const value = this.getDisplacementValue(displacementImageData, uv.u, uv.v, imageWidth, imageHeight);
+      const value = this.getDisplacementValue(imageData, uv.u, uv.v, imageWidth, imageHeight);
 
       if (curvature > 0)
       {
@@ -151,16 +302,16 @@ class ModelViewer
     geometry.attributes.position.needsUpdate = true;
   }
 
-  getDisplacementImageData(displacementMap) {
+  getImageData(image) {
     const canvas  = document.createElement('canvas');
-    canvas.width  = displacementMap.image.width;
-    canvas.height = displacementMap.image.height;
+    canvas.width  = image.width;
+    canvas.height = image.height;
 
     const context = canvas.getContext('2d');
-    context.drawImage(displacementMap.image, 0, 0);
+    context.drawImage(image, 0, 0);
 
     try {
-      return context.getImageData(0, 0, displacementMap.image.width, displacementMap.image.height);
+      return context.getImageData(0, 0, image.width, image.height);
     }
     catch (error) {
       return console.error('Failed to get displacement image data:', error);
@@ -174,28 +325,36 @@ class ModelViewer
     return (pixel / 255) - 0.5; // Normalize to [-0.5, 0.5]
   }
 
-  textureLoad(texture) {
-    let displacementMap = this.displacementMap;
-
-    displacementMap.image       = texture.image; // Store the loaded image
-    displacementMap.needsUpdate = true; // Update the texture
-
-    this.geometry.computeVertexNormals();
-
-    this.displaceVertices(displacementMap); // Adjust the scale as needed
-
-    const displacedMesh = new THREE.Mesh(this.geometry, new THREE.MeshPhongMaterial({
-      map: texture,
+  materialInit() {
+    this.material = new THREE.MeshPhongMaterial({
+      map: this.texture,
       // bumpMap: displacementMap,
       // bumpScale: -2,
       // displacementMap: displacementMap,
       // displacementScale: -2,
       // side: THREE.FrontSide
-    }));
+    });
+  }
 
-    this.scene.add(displacedMesh);
+  meshInit() {
+    this.materialInit();
+    this.geometryInit();
+
+    const mesh = new THREE.Mesh(this.geometry, this.material);
+
+    this.scene.add(mesh);
 
     //this.download(displacedMesh);
+  }
+
+  animate() {
+    requestAnimationFrame(this.animate.bind(this));
+
+    this.render();
+  }
+
+  render() {
+    this.renderer.render(this.scene, this.camera);
   }
 
   download(mesh) {
@@ -218,14 +377,11 @@ class ModelViewer
     //saveArrayBuffer( result, 'box.stl' );
   }
 
-  animate() {
-    requestAnimationFrame(this.animate.bind(this));
-
+  onResize() {
+    this.camera.aspect = this.getAspectRatio();
+    this.camera.updateProjectionMatrix();
+    this.renderer.setSize(this.container.clientWidth, this.container.clientHeight);
     this.render();
-  }
-
-  render() {
-    this.renderer.render(this.scene, this.camera);
   }
 }
 
@@ -237,33 +393,84 @@ onMounted(() => {
 
 });
 
-modelViewer.animate();
 </script>
 
 <template>
   <Head title="Create"/>
 
   <AuthenticatedLayout>
-    <div id="options-container">
+    <div id="wrapper-container">
+      <div id="options-container">
 
-    </div>
-    <div id="main-container">
+      </div>
+      <div id="main-container">
 
+      </div>
     </div>
   </AuthenticatedLayout>
 </template>
 
 <style scoped>
-#options-container {
+#wrapper-container {
+  position: relative;
+  display: block;
+  height: calc(100vh - var(--topbar-height));
 
+  --options-container-width: 400px;
+  --topbar-height: 4rem;
+}
+
+#options-container {
+  position: absolute;
+  left: 0;
+  width: var(--options-container-width);
+  top: 0;
+  bottom: 0;
+  padding: 10px;
 }
 
 #main-container {
+  position: absolute;
+  left: var(--options-container-width);
+  right: 0;
+  top: 0;
+  bottom: 0;
+
   background: #11e8bb; /* Old browsers */
   background: -moz-linear-gradient(top, #11e8bb 0%, #8200c9 100%); /* FF3.6-15 */
   background: -webkit-linear-gradient(top, #11e8bb 0%, #8200c9 100%); /* Chrome10-25,Safari5.1-6 */
   background: linear-gradient(to bottom, #11e8bb 0%, #8200c9 100%); /* W3C, IE10+, FF16+, Chrome26+, Opera12+, Safari7+ */
   filter: progid:DXImageTransform.Microsoft.gradient(startColorstr='#11e8bb', endColorstr='#8200c9', GradientType=0); /* IE6-9 */
   overflow: hidden;
+}
+</style>
+
+<style>
+.slider {
+  -webkit-appearance: none;
+  width: 100%;
+  height: 15px;
+  border-radius: 5px;
+  background: #d3d3d3;
+  outline: none;
+  opacity: 0.7;
+  -webkit-transition: .2s;
+  transition: opacity .2s;
+}
+.slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 25px;
+  height: 25px;
+  border-radius: 50%;
+  background: #04AA6D;
+  cursor: pointer;
+}
+.slider::-moz-range-thumb {
+  width: 25px;
+  height: 25px;
+  border-radius: 50%;
+  background: #04AA6D;
+  cursor: pointer;
 }
 </style>
