@@ -202,8 +202,9 @@ class ModelViewer
     this.container = document.getElementById('main-container');
     this.options   = document.getElementById('options-container');
 
+    this.scale     = 80;
     this.depth     = 1;
-    this.curvature = 0.5;
+    this.curvature = 0;
     this.greyscale = false;
 
     this.init();
@@ -273,8 +274,10 @@ class ModelViewer
     this.controls.screenSpacePanning = true //so that panning up and down doesn't zoom in/out
   }
 
-  geometryInit() {
-    this.geometry = new THREE.PlaneGeometry(80, 50, 400, 400);
+  geometryInit(width, height) {
+    let aspectRatio = width / height;
+
+    this.geometry = new THREE.PlaneGeometry(this.scale * aspectRatio, this.scale, 400, 400);
 
     this.displaceVertices(this.texture.image);
   }
@@ -295,6 +298,12 @@ class ModelViewer
     }));
 
     if (this.texture) {
+      this.optionsAddSlider('Scale', this.scale, 10, 500, (e) => this.delay(0, 'set_scale', () => {
+        this.scale = e.target.value;
+
+        this.meshReload();
+      }));
+
       this.optionsAddToggle('Greyscale', this.greyscale, (e) => this.delay(0, 'set_greyscale', () => {
         this.greyscale = e.target.checked;
 
@@ -471,7 +480,7 @@ class ModelViewer
 
       this.sceneInit();
       this.materialInit();
-      this.geometryInit();
+      this.geometryInit(texture.image.width, texture.image.height);
 
       const mesh = new THREE.Mesh(this.geometry, this.material);
 
