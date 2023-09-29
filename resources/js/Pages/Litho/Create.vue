@@ -7,6 +7,7 @@ import AuthenticatedLayout from "@/Layouts/AuthenticatedLayout.vue";
 import * as THREE from 'three';
 import {OrbitControls} from "three/addons/controls/OrbitControls";
 import {STLExporter} from 'three/addons/exporters/STLExporter.js';
+import { OBJLoader } from 'three/addons/loaders/OBJLoader.js';
 import {VertexNormalsHelper} from "three/addons/helpers/VertexNormalsHelper";
 
 const exporter = new STLExporter();
@@ -274,10 +275,27 @@ class ModelViewer
     this.controls.screenSpacePanning = true //so that panning up and down doesn't zoom in/out
   }
 
-  geometryInit(width, height) {
+  geometryInit(width, height, onLoadGeometry) {
     let aspectRatio = width / height;
 
-    this.geometry = new THREE.PlaneGeometry(this.scale * aspectRatio, this.scale, 400, 400);
+    //this.geometry = new THREE.BoxGeometry(this.scale * aspectRatio, this.scale, 3, 400, 400);
+    //console.log(this.geometry);
+
+      const loader = new OBJLoader()
+      loader.load(
+          'http://127.0.0.1:8000/models/box4.obj',
+          (geometry) => {
+              console.log(geometry);
+              this.geometry = geometry.children[0];
+              onLoadGeometry.call(this);
+          },
+          (xhr) => {
+              console.log((xhr.loaded / xhr.total) * 100 + '% loaded')
+          },
+          (error) => {
+              console.log(error)
+          }
+      )
 
     this.displaceVertices(this.texture.image);
   }
@@ -329,9 +347,11 @@ class ModelViewer
   }
 
   calculateUV(x, y, width, height) {
+    let Two = 1.9999;
+
     return {
-      u: ((x + (width / 2)) / width),
-      v: 1 - ((y + (height / 2)) / height),
+      u: ((x + (width / Two)) / width),
+      v: 1.0001 - ((y + (height / Two)) / height),
     };
   }
 
@@ -361,8 +381,12 @@ class ModelViewer
     const vertices  = geometry.attributes.position.array;
     const normals   = geometry.attributes.normal.array;
 
-    for (let i = 0; i < vertices.length; i += 3) {
-      let vertex = new THREE.Vector3(
+    const faceGroup = geometry.groups[4];
+    const start = faceGroup.start * 3;
+    const end = start + ((faceGroup.count / 7.5) * 3);
+
+    for (let i = start; i < end; i += 3) {
+        let vertex = new THREE.Vector3(
           vertices[i + 0],
           vertices[i + 1],
           vertices[i + 2]
@@ -371,10 +395,10 @@ class ModelViewer
       const uv    = this.calculateUV(vertex.x, vertex.y, geometry.parameters.width, geometry.parameters.height);
       const value = this.getDisplacementValue(imageData, uv.u, uv.v, imageWidth, imageHeight);
 
-      vertexDatas.push({
-        uv: uv,
-        value: value,
-      });
+      vertexDatas[i] = {
+          uv: uv,
+          value: value,
+      };
 
       if (curvature > 0)
       {
@@ -395,8 +419,8 @@ class ModelViewer
 
     geometry.computeVertexNormals();
 
-    for (let i = 0; i < vertices.length; i += 3) {
-      let vertexData = vertexDatas[i / 3];
+    for (let i = start; i < end; i += 3) {
+      let vertexData = vertexDatas[i];
       let vertex = new THREE.Vector3(
           vertices[i + 0],
           vertices[i + 1],
@@ -410,7 +434,7 @@ class ModelViewer
 
       const value = vertexData.value;
 
-      vertex.add(normal.clone().multiplyScalar(-value * depth));
+      vertex.add(normal.clone().multiplyScalar(value * depth));
 
       vertices[i + 0] = vertex.x;
       vertices[i + 1] = vertex.y;
@@ -480,13 +504,14 @@ class ModelViewer
 
       this.sceneInit();
       this.materialInit();
-      this.geometryInit(texture.image.width, texture.image.height);
+      this.geometryInit(texture.image.width, texture.image.height, function () {
+          console.log(this.geometry);
+          const mesh = new THREE.Mesh(this.geometry, this.material);
 
-      const mesh = new THREE.Mesh(this.geometry, this.material);
+          this.scene.add(mesh);
+          onTextureReady.call(this);
+      });
 
-      this.scene.add(mesh);
-
-      onTextureReady.call(this);
     });
 
     //this.download(displacedMesh);
