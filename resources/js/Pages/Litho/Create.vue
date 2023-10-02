@@ -1,3 +1,4 @@
+<!--suppress PointlessArithmeticExpressionJS -->
 <script setup>
 import {ref, onMounted} from 'vue'
 
@@ -199,7 +200,7 @@ class ModelViewer {
         this.container = document.getElementById('main-container');
         this.options = document.getElementById('options-container');
 
-        this.scale = 80;
+        this.scale = 10;
         this.depth = 1;
         this.curvature = 0;
         this.greyscale = false;
@@ -281,8 +282,8 @@ class ModelViewer {
         loader.load(
             'http://127.0.0.1:8000/models/box3.gltf',
             (meshScene) => {
-                console.log(meshScene);
                 this.geometry = meshScene.scene.children[0].geometry;
+                this.geometry.computeVertexNormals();
                 this.displaceVertices(this.texture.image);
                 onLoadGeometry.call(this);
             },
@@ -373,9 +374,9 @@ class ModelViewer {
         const yAxis = new THREE.Vector3(0, 1, 0);
         const vertexDatas = [];
 
-        const vertices = geometry.attributes.position.array;
-        const normals = geometry.attributes.normal.array;
-        const displace = geometry.attributes._displace.array;
+        const vertices  = geometry.attributes.position.array;
+        const normals   = geometry.attributes.normal.array;
+        const displace  = geometry.attributes._displace.array;
 
         for (let i = 0; i < vertices.length; i += 3) {
             let vertex = new THREE.Vector3(
@@ -384,7 +385,10 @@ class ModelViewer {
                 vertices[i + 2]
             );
 
-            const uv = this.calculateUV(vertex.x, vertex.y, 50, 50);
+            const geometryWidth  = (geometry.boundingBox.max.x - geometry.boundingBox.min.x) * this.scale;
+            const geometryHeight = (geometry.boundingBox.max.y - geometry.boundingBox.min.y) * this.scale;
+
+            const uv = this.calculateUV(vertex.x, vertex.y, geometryWidth, geometryHeight);
             const value = this.getDisplacementValue(imageData, uv.u, uv.v, imageWidth, imageHeight);
 
             vertexDatas[i] = {
@@ -501,7 +505,7 @@ class ModelViewer {
             this.geometryInit(texture.image.width, texture.image.height, function () {
                 console.log(this.geometry);
                 const mesh = new THREE.Mesh(this.geometry, this.material);
-
+                mesh.scale.x = mesh.scale.y = mesh.scale.z = this.scale;
                 this.scene.add(mesh);
 
                 if (onTextureReady) {
