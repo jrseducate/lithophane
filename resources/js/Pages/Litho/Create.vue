@@ -376,7 +376,11 @@ class ModelViewer {
 
         const vertices  = geometry.attributes.position.array;
         const normals   = geometry.attributes.normal.array;
+        const uvs       = geometry.attributes.uv.array;
         const displace  = geometry.attributes._displace.array;
+
+        const geometryWidth  = (geometry.boundingBox.max.x - geometry.boundingBox.min.x) * this.scale;
+        const geometryHeight = (geometry.boundingBox.max.y - geometry.boundingBox.min.y) * this.scale;
 
         for (let i = 0; i < vertices.length; i += 3) {
             let vertex = new THREE.Vector3(
@@ -385,10 +389,9 @@ class ModelViewer {
                 vertices[i + 2]
             );
 
-            const geometryWidth  = (geometry.boundingBox.max.x - geometry.boundingBox.min.x) * this.scale;
-            const geometryHeight = (geometry.boundingBox.max.y - geometry.boundingBox.min.y) * this.scale;
+            console.log(geometryWidth, geometryHeight)
 
-            const uv = this.calculateUV(vertex.x, vertex.y, geometryWidth, geometryHeight);
+            const uv    = this.calculateUV(vertex.x - geometry.boundingBox.min.x, vertex.y - geometry.boundingBox.min.y, geometryWidth, geometryHeight);
             const value = this.getDisplacementValue(imageData, uv.u, uv.v, imageWidth, imageHeight);
 
             vertexDatas[i] = {
@@ -427,7 +430,7 @@ class ModelViewer {
                 normals[i + 2]
             );
 
-            if(displace[i / 3] == 0) {
+            if(displace[i / 3] === 0) {
                 continue;
             }
 
@@ -441,7 +444,6 @@ class ModelViewer {
         }
 
         geometry.computeVertexNormals();
-
         geometry.attributes.position.needsUpdate = true;
     }
 
