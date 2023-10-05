@@ -207,7 +207,7 @@ class ModelViewer {
         this.greyscale = false;
 
         this.testing_log = true;
-        this.testing_textureUrl = 'images/image.png';
+        //this.testing_textureUrl = 'images/image.png';
 
         this.init();
     }
@@ -299,7 +299,7 @@ class ModelViewer {
         //this.geometry = new THREE.BoxGeometry(this.scale * aspectRatio, this.scale, 3, 400, 400);
         //console.log(this.geometry);
 
-        const url = '/models/box.fbx';
+        const url = '/models/box.obj';
         const format = url.substring(url.lastIndexOf('.') + 1);
         const loader = this.getLoader(format);
         loader.load(
@@ -373,11 +373,20 @@ class ModelViewer {
         window.addEventListener('resize', this.onResize.bind(this), false);
     }
 
+    isValidUV(uv) {
+        const inset = 0.01;
+
+        return uv.u > (0 + inset)
+            && uv.u < (1 - inset) 
+            && uv.v > (0 + inset)
+            && uv.v < (1 - inset);
+    }
+
     displaceVertices(image) {
         const geometry = this.geometry;
         const depth = this.depth;
 
-        geometry.computeVertexNormals();
+        //geometry.computeVertexNormals();
 
         const context = this.getImageCanvas(image);
         const imageData = context.getImageData(0, 0, image.width, image.height);
@@ -393,7 +402,6 @@ class ModelViewer {
         const vertices    = geometry.attributes.position.array;
         const normals     = geometry.attributes.normal.array;
         const uvs         = geometry.attributes.uv.array;
-        //const displace    = geometry.attributes._displace.array;
 
         for (let i = 0; i < vertexCount; i++) {
             const vertexIndex = i * 3;
@@ -416,17 +424,42 @@ class ModelViewer {
                 v: uvs[uvIndex + 1],
             };
 
-            if(displace[i] === 0) {
+            const displace = this.isValidUV(uv);
+
+            if(!displace) {
                 continue;
             }
 
-            const value = this.getDisplacementValue(imageData, uv.u, uv.v, imageWidth, imageHeight);
+            const zero = 0;
+            const dist = 0.05;
+
+            let value = this.getDisplacementValue(imageData, uv.u, uv.v, imageWidth, imageHeight);
+
+            const neighbors = [
+                this.getDisplacementValue(imageData, uv.u + zero, uv.v + dist, imageWidth, imageHeight) ?? value, // Top Middle
+                this.getDisplacementValue(imageData, uv.u + zero, uv.v - dist, imageWidth, imageHeight) ?? value, // Bottom Middle
+
+                this.getDisplacementValue(imageData, uv.u - dist, uv.v + zero, imageWidth, imageHeight) ?? value, // Middle Left
+                this.getDisplacementValue(imageData, uv.u + dist, uv.v + zero, imageWidth, imageHeight) ?? value, // Middle Right
+
+                this.getDisplacementValue(imageData, uv.u + dist, uv.v + dist, imageWidth, imageHeight) ?? value, // Top Right
+                this.getDisplacementValue(imageData, uv.u + dist, uv.v - dist, imageWidth, imageHeight) ?? value, // Bottom Right
+
+                this.getDisplacementValue(imageData, uv.u - dist, uv.v + dist, imageWidth, imageHeight) ?? value, // Top Left
+                this.getDisplacementValue(imageData, uv.u - dist, uv.v - dist, imageWidth, imageHeight) ?? value, // Bottom Left
+            ];
+
+            for(let j = 0; j < neighbors.length; j++) {
+                value += neighbors[j];
+            }
+
+            value /= neighbors.length + 1;
 
             vertex.add(normal.clone().multiplyScalar(value * depth));
 
-            vertices[i + 0] = vertex.x;
-            vertices[i + 1] = vertex.y;
-            vertices[i + 2] = vertex.z;
+            vertices[vertexIndex + 0] = vertex.x;
+            vertices[vertexIndex + 1] = vertex.y;
+            vertices[vertexIndex + 2] = vertex.z;
         }
 
         geometry.computeVertexNormals();
@@ -449,6 +482,13 @@ class ModelViewer {
     }
 
     getDisplacementValue(imageData, u, v, width, height) {
+        if (!this.isValidUV({
+            u: u,
+            v: v
+        })) {
+            return null;
+        }
+
         const index = (Math.floor(u * (width - 1)) + (Math.floor(v * (height - 1)) * width)) * 4;
         const pixel = (imageData.data[index] + imageData.data[index + 1] + imageData.data[index + 2]) / 3;
 
