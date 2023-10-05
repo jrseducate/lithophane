@@ -8,7 +8,9 @@ import AuthenticatedLayout from "@/Layouts/AuthenticatedLayout.vue";
 import * as THREE from 'three';
 import {OrbitControls} from "three/addons/controls/OrbitControls";
 import {STLExporter} from 'three/addons/exporters/STLExporter.js';
+import {OBJLoader} from 'three/addons/loaders/OBJLoader.js';
 import {GLTFLoader} from 'three/addons/loaders/GLTFLoader.js';
+import {FBXLoader} from 'three/addons/loaders/FBXLoader.js';
 import {VertexNormalsHelper} from "three/addons/helpers/VertexNormalsHelper";
 
 const exporter = new STLExporter();
@@ -202,8 +204,10 @@ class ModelViewer {
 
         this.scale = 10;
         this.depth = 1;
-        this.curvature = 0;
         this.greyscale = false;
+
+        this.testing_log = true;
+        this.testing_textureUrl = 'images/image.png';
 
         this.init();
     }
@@ -225,6 +229,10 @@ class ModelViewer {
         this.bindingsInit();
 
         this.animate();
+
+        if (this.testing_textureUrl) {
+            this.onImageSelected(this.testing_textureUrl);
+        }
     }
 
     sceneInit() {
@@ -272,19 +280,46 @@ class ModelViewer {
         this.controls.screenSpacePanning = true //so that panning up and down doesn't zoom in/out
     }
 
+    getLoader(format) {
+        switch(format) {
+            case 'obj':
+                return new OBJLoader();
+            case 'gltf':
+                return new GLTFLoader();
+            case 'fbx':
+                return new FBXLoader();
+        }
+
+        throw "Failed to load associated loader...";
+    }
+
     geometryInit(width, height, onLoadGeometry) {
-        let aspectRatio = width / height;
+        //let aspectRatio = width / height;
 
         //this.geometry = new THREE.BoxGeometry(this.scale * aspectRatio, this.scale, 3, 400, 400);
         //console.log(this.geometry);
 
-        const loader = new GLTFLoader()
+        const url = '/models/box.fbx';
+        const format = url.substring(url.lastIndexOf('.') + 1);
+        const loader = this.getLoader(format);
         loader.load(
-            'http://127.0.0.1:8000/models/box3.gltf',
-            (meshScene) => {
-                this.geometry = meshScene.scene.children[0].geometry;
-                this.geometry.computeVertexNormals();
+            url,
+            (loaded) => {
+                let scene = loaded;
+
+                if (scene.scene) {
+                    scene = scene.scene;
+                }
+
+                this.geometry = scene.children[0].geometry;
+
+                if (this.testing_log) {
+                    console.log(scene);
+                    console.log(this.geometry);
+                }
+
                 this.displaceVertices(this.texture.image);
+
                 onLoadGeometry.call(this);
             },
             (xhr) => {
@@ -307,9 +342,11 @@ class ModelViewer {
     optionsInit() {
         this.options.innerHTML = '';
 
-        this.optionsAddImageUpload('Texture', (e) => this.delay(0, 'set_texture', () => {
-            this.loadImage(e);
-        }));
+        if (!this.testing_textureUrl) {
+            this.optionsAddImageUpload('Texture', (e) => this.delay(0, 'set_texture', () => {
+                this.loadImage(e);
+            }));
+        }
 
         if (this.texture) {
             this.optionsAddSlider('Scale', this.scale, 10, 500, (e) => this.delay(0, 'set_scale', () => {
@@ -329,12 +366,6 @@ class ModelViewer {
 
                 this.meshReload();
             }));
-
-            this.optionsAddSlider('Curvature', this.curvature * 100, 0, 100, (e) => this.delay(0, 'set_curvature', () => {
-                this.curvature = e.target.value / 100;
-
-                this.meshReload();
-            }));
         }
     }
 
@@ -342,22 +373,9 @@ class ModelViewer {
         window.addEventListener('resize', this.onResize.bind(this), false);
     }
 
-    calculateUV(x, y, width, height) {
-        let Two = 1.9999;
-
-        return {
-            u: ((x + (width / Two)) / width),
-            v: 1.0001 - ((y + (height / Two)) / height),
-        };
-    }
-
     displaceVertices(image) {
         const geometry = this.geometry;
         const depth = this.depth;
-        const curvature = this.curvature;
-        let radius = 120;
-
-        radius /= curvature * Math.PI;
 
         geometry.computeVertexNormals();
 
@@ -368,73 +386,41 @@ class ModelViewer {
             return console.error('Failed to access image data.');
         }
 
-        const imageWidth = image.width;
+        const imageWidth  = image.width;
         const imageHeight = image.height;
 
-        const yAxis = new THREE.Vector3(0, 1, 0);
-        const vertexDatas = [];
+        const vertexCount = geometry.attributes.position.count;
+        const vertices    = geometry.attributes.position.array;
+        const normals     = geometry.attributes.normal.array;
+        const uvs         = geometry.attributes.uv.array;
+        //const displace    = geometry.attributes._displace.array;
 
-        const vertices  = geometry.attributes.position.array;
-        const normals   = geometry.attributes.normal.array;
-        const uvs       = geometry.attributes.uv.array;
-        const displace  = geometry.attributes._displace.array;
-
-        const geometryWidth  = (geometry.boundingBox.max.x - geometry.boundingBox.min.x) * this.scale;
-        const geometryHeight = (geometry.boundingBox.max.y - geometry.boundingBox.min.y) * this.scale;
-
-        for (let i = 0; i < vertices.length; i += 3) {
-            let vertex = new THREE.Vector3(
-                vertices[i + 0],
-                vertices[i + 1],
-                vertices[i + 2]
+        for (let i = 0; i < vertexCount; i++) {
+            const vertexIndex = i * 3;
+            let vertex        = new THREE.Vector3(
+                vertices[vertexIndex + 0],
+                vertices[vertexIndex + 1],
+                vertices[vertexIndex + 2]
             );
 
-            console.log(geometryWidth, geometryHeight)
+            const normalIndex = i * 3;
+            const normal      = new THREE.Vector3(
+                normals[normalIndex + 0],
+                normals[normalIndex + 1],
+                normals[normalIndex + 2]
+            );
 
-            const uv    = this.calculateUV(vertex.x - geometry.boundingBox.min.x, vertex.y - geometry.boundingBox.min.y, geometryWidth, geometryHeight);
-            const value = this.getDisplacementValue(imageData, uv.u, uv.v, imageWidth, imageHeight);
-
-            vertexDatas[i] = {
-                uv: uv,
-                value: value,
+            const uvIndex = i * 2;
+            let uv        = {
+                u: uvs[uvIndex + 0],
+                v: uvs[uvIndex + 1],
             };
 
-            if (curvature > 0) {
-                const center = new THREE.Vector3(
-                    0,
-                    vertex.y,
-                    0
-                );
-
-                const direction = (new THREE.Vector3(0, 0, radius)).applyAxisAngle(yAxis, THREE.MathUtils.degToRad((uv.u - 0.5) * 360 * curvature));//.subVectors(vertex, center).normalize().multiplyScalar(radius);
-                vertex = (new THREE.Vector3()).addVectors(center, direction).sub(new THREE.Vector3(0, 0, radius));
-
-                vertices[i + 0] = vertex.x;
-                vertices[i + 1] = vertex.y;
-                vertices[i + 2] = vertex.z;
-            }
-        }
-
-        geometry.computeVertexNormals();
-
-        for (let i = 0; i < vertices.length; i += 3) {
-            let vertexData = vertexDatas[i];
-            let vertex = new THREE.Vector3(
-                vertices[i + 0],
-                vertices[i + 1],
-                vertices[i + 2]
-            );
-            const normal = new THREE.Vector3(
-                normals[i + 0],
-                normals[i + 1],
-                normals[i + 2]
-            );
-
-            if(displace[i / 3] === 0) {
+            if(displace[i] === 0) {
                 continue;
             }
 
-            const value = vertexData.value;
+            const value = this.getDisplacementValue(imageData, uv.u, uv.v, imageWidth, imageHeight);
 
             vertex.add(normal.clone().multiplyScalar(value * depth));
 
@@ -464,9 +450,9 @@ class ModelViewer {
 
     getDisplacementValue(imageData, u, v, width, height) {
         const index = (Math.floor(u * (width - 1)) + (Math.floor(v * (height - 1)) * width)) * 4;
-        const pixel = (imageData.data[index] + imageData.data[index + 1]) / 3; // Assuming it's grayscale
+        const pixel = (imageData.data[index] + imageData.data[index + 1] + imageData.data[index + 2]) / 3;
 
-        return (pixel / 255) - 0.5; // Normalize to [-0.5, 0.5]
+        return pixel / 255; // Normalize to [-0.5, 0.5]
     }
 
     materialInit() {
